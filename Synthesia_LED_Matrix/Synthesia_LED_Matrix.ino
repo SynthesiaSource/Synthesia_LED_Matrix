@@ -3,16 +3,33 @@
 
 /*****************************************************************************/
 // LED Array Control Code by Overhauser
-// PixelSet method must be modified to change resolution
+// LPD8806 library by Adafruit Industries
 // SPI additions by cjbaar
+// Ensure that matrixSizeX, matrixSizeY and number of pixels in 
+// LPD8806() instantiation are set to your array resolution.
 /*****************************************************************************/
 
 
-// Set the parameter to the NUMBER of pixels. 32 = 32 pixels in a row
-// The LED strips are 32 LEDs per meter but you can extend/cut the strip
+// Set the size of the matrix here.
+const int matrixSizeX = 6;
+const int matrixSizeY = 64;
+
+
+// Set the parameter to the NUMBER of pixels. Should equal matrixSizeX * matrixSizeY.
+// Storing the states of the LEDs requires 3 bytes per LED. The most common failure is 
+// having insufficient memory for the size of the array. Using SRAM is necessary as 
+// EEPROM and Flash are far slower. 
+
+// Below is a list of maximum LED capacities for various boards.
+// For very large arrays (2000+) we recommend the BeagleBone or Raspberry Pi
+
+// Arduino Mega 2560  - 333 LEDs
+// Arduino Due        - 4000 LEDs
+// Teensy 3.0         - 680 LEDs
 LPD8806 strip = LPD8806(384);
 #define PI 3.14159265
 #define dist(a, b, c, d) sqrt(double((a - c) * (a - c) + (b - d) * (b - d)))
+
 
 // Gamma correction compensates for our eyes' nonlinear perception of
 // intensity.  It's the LAST step before a pixel value is stored, and
@@ -44,37 +61,64 @@ unsigned char gammaTable[]  = {
   109,110,111,113,114,115,116,117,118,120,121,122,123,125,126,127
 };
 
+// These tables require 720 bytes of memory but greatly increase processing speed.
+// This is only 30 LEDs worth of data and is recommended for many effects where 
+//calculation speed is the bottleneck more so than pushing out pixels to the matrix/array.
+float sineTable[90];
+float cosTable[90];
 
-  byte fireDataA[7][65];
-  byte fireDataB[7][65];
-  
-    long modeController = 0;
 
+// Buffers used for certain visual effects.
+// Used to control 8 bit data such as intensities etc.
+byte matrixLayer1[matrixSizeX][matrixSizeY];
+byte matrixLayer2[matrixSizeX][matrixSizeY];
   
-void pixelSet(int x, int y, uint32_t c);
-void plasma();
-void motionPlasma(int cycles);
-void experimentalPlasma();
-void classicPlasma(int cycles);
-void rain();
-void randomPlasma();
-void plasmaGoGo();
-void fastColorPulse();
-void sineWave();
-void meteors();
-void richPlasma();
-void povLine();
-void stipesOfAwesome(uint8_t wait);
-void rainbowCycleUnity(uint8_t wait);
-void rainbowCycleCentreSplit(uint8_t wait);
-void rainbowRadial(uint8_t wait, int powerX, int powerY);
-void plasmaComplex();
+long modeController = 0;
+
+// Helper functions
+  
 byte gamma(byte x);
 byte highPassFilter(uint32_t c);
+void pixelSet(int x, int y, uint32_t c);
+
+// veryFastSine/Cos are approximately 50% faster but are less accurate than fastSine/Cos
+float fastCos(float x);
+float fastSine(float x);
+float veryFastCos(float x);
+float veryFastSine(float x);
+
 uint32_t setBrightness(uint32_t c, int brightness);
 uint32_t Wheel(uint16_t WheelPos);
 uint32_t bgWheel(uint16_t WheelPos);
 uint32_t inverseWheel(uint16_t WheelPos);
+
+// Effects
+void motionPlasma(int cycles);
+void experimentalPlasma();
+void fire();
+void twoChannelFire();
+void classicPlasma(int cycles);
+
+void fastColorPulse();
+void meteors();
+void plasma();
+void plasmaComplex();
+void plasmaGoGo();
+void povLine();
+void pulsingGeometry(uint8_t wait);
+void rain();
+void randomPlasma();
+void rainbowCycleUnity(uint8_t wait);
+void rainbowCycleCentreSplit(uint8_t wait);
+void rainbowRadial(uint8_t wait, int powerX, int powerY);
+void richPlasma();
+void noDivisionPlasma();
+void sineWave();
+void sparkler();
+void sparklerMultiColor();
+void stipesOfAwesome(uint8_t wait);
+void sineWaveCheckers();
+void ultimateTrap(uint8_t wait);
 
 void setup() {
   
@@ -85,13 +129,19 @@ void setup() {
 
 	// Update the strip, to start they are all 'off'
 	strip.show();
+  
+  for (int i = 0; i < 90; i++)
+  {
+      sineTable[i] = sin(PI/180 * i);
+      cosTable[i] = cos(PI/180 *i);
+  }
 
-  for(int x = 0; x < 6; x++) 
+  for(int x = 0; x < matrixSizeX; x++) 
     {
-    for(int y = 0; y < 64; y++)
+    for(int y = 0; y < matrixSizeY; y++)
       {
-      fireDataA[x][y] = 0;
-      fireDataB[x][y] = 0;
+      matrixLayer1[x][y] = 0;
+      matrixLayer2[x][y] = 0;
       }
     }
 
@@ -116,30 +166,30 @@ void loop() {
   // Good to go
   //plasmaComplex();
   
-  if(modeController > 0 && modeController < 100)
-  {
-  plasmaComplex(); 
-  }
-
-  if(modeController > 100 && modeController <200)
-  {
-  sparkler();
-  }
-  
-  if(modeController > 200 && modeController < 300)
-  {
-  sineWaveCheckers();
-  }
-  
-  if(modeController > 300 && modeController < 400)
-  {
-  rainbowRadial(50, 4, 4);
-  }
-  
-  if(modeController > 400 && modeController < 700)
-  {
-  twoChannelFire();
-  }
+//  if(modeController > 0 && modeController < 100)
+//  {
+//  plasmaComplex(); 
+//  }
+//
+//  if(modeController > 100 && modeController <200)
+//  {
+//  sparkler();
+//  }
+//  
+//  if(modeController > 200 && modeController < 300)
+//  {
+//  sineWaveCheckers();
+//  }
+//  
+//  if(modeController > 300 && modeController < 400)
+//  {
+//  rainbowRadial(50, 4, 4);
+//  }
+//  
+//  if(modeController > 400 && modeController < 700)
+//  {
+//  twoChannelFire();
+//  }
   
   //noDivisionPlasma();
   //twoChannelFire();
@@ -197,10 +247,24 @@ void plasmaComplex() {
         {
           for(int y = 0; y < 64; y++)
           {
-              double value = sin(dist(x + time, y, 64.0, 64.0) / 4.0)
-                         + sin(dist(x, y, 32.0, 32.0) / 4.0)
-                         + sin(dist(x, y + time / 7, 95.0, 32) / 3.5)
-                         + sin(dist(x, y, 95.0, 50.0) / 4.0);
+//              double value = sin(dist(x + time, y, 64.0, 64.0) / 4.0)
+//                         + sin(dist(x, y, 32.0, 32.0) / 4.0)
+//                         + sin(dist(x, y + time / 7, 95.0, 32) / 3.5)
+//                         + sin(dist(x, y, 95.0, 50.0) / 4.0);
+
+
+//              double value = interpolateSine(dist(x + time, y, 64.0, 64.0) / 4.0)
+//                         + interpolateSine(dist(x, y, 32.0, 32.0) / 4.0)
+//                         + interpolateSine(dist(x, y + time / 7, 95.0, 32) / 3.5)
+//                         + interpolateSine(dist(x, y, 95.0, 50.0) / 4.0);
+
+
+              double value = veryFastSine(dist(x + time, y, 64.0, 64.0) / 4.0)
+                         + veryFastSine(dist(x, y, 32.0, 32.0) / 4.0)
+                         + veryFastSine(dist(x, y + time / 7, 95.0, 32) / 3.5)
+                         + veryFastSine(dist(x, y, 95.0, 50.0) / 4.0);
+
+
             int color = int((4 + value)*384)%384;
 //            pixelSet(x, y, Wheel(color));
             pixelSet(x, y, setBrightness(Wheel(color), 2));
@@ -210,6 +274,16 @@ void plasmaComplex() {
       //strip.showCompileTime<ClockPin, DataPin>();   
       strip.show();
     }  
+}
+
+float interpolateSine(float x)
+{
+ return sineTable[int(x)] + (sineTable[int(x + .5)] - sineTable[int(x)]) / 2; 
+}
+
+float interpolateCos(float x)
+{
+ return cosTable[int(x)] + (cosTable[int(x + .5)] - cosTable[int(x)]) / 2; 
 }
 
 // Extremely Beautiful
@@ -246,16 +320,16 @@ void fire() {
   
   for(int x = 0; x < 6; x++)
     {
-    fireDataA[x][0] = random(-20, 127);
-    fireDataA[x][1] = random(-50, 127);
+    matrixLayer1[x][0] = random(-20, 127);
+    matrixLayer1[x][1] = random(-50, 127);
     }
 
   for(int y = 0; y < 64; y++)
     {
     for(int x = 0; x < 6; x++) 
       {
-      byte newPoint = (fireDataA[x-1][y] + fireDataA[x+1][y] + fireDataA[x][y-1] + fireDataA[x][y+1]) / 4 - 10;
-      fireDataB[x][y+1] = newPoint;
+      byte newPoint = (matrixLayer1[x-1][y] + matrixLayer1[x+1][y] + matrixLayer1[x][y-1] + matrixLayer1[x][y+1]) / 4 - 10;
+      matrixLayer2[x][y+1] = newPoint;
       }
     }
    
@@ -266,8 +340,8 @@ void fire() {
     {
     for(int y = 0; y < 64; y++)
       {
-      pixelSet(x,y, strip.Color(gamma(fireDataA[x][y]), 0, 0));
-      fireDataA[x][y] = fireDataB[x][y];
+      pixelSet(x,y, strip.Color(gamma(matrixLayer1[x][y]), 0, 0));
+      matrixLayer1[x][y] = matrixLayer2[x][y];
       }
     }
 }
@@ -282,11 +356,11 @@ void twoChannelFire() {
     int randomOff = (0, 2);
     if(randomOff == 0)
       {
-      fireDataA[x][0] = 0;
-      fireDataA[x][1] = 0;      
+      matrixLayer1[x][0] = 0;
+      matrixLayer1[x][1] = 0;      
       } else {
-      fireDataA[x][0] = random(-100, 255);
-      fireDataA[x][1] = random(-60, 255);
+      matrixLayer1[x][0] = random(-100, 255);
+      matrixLayer1[x][1] = random(-60, 255);
       }
     }
 
@@ -296,14 +370,14 @@ void twoChannelFire() {
       {
       byte newPoint;
       int flameDampen = random(0, 5);
-      int flameValue = (fireDataA[x-1][y] + fireDataA[x+1][y] + fireDataA[x][y-1] + fireDataA[x][y+1]) / flameDampen;
+      int flameValue = (matrixLayer1[x-1][y] + matrixLayer1[x+1][y] + matrixLayer1[x][y-1] + matrixLayer1[x][y+1]) / flameDampen;
       if(flameDampen < flameValue)
         {
         newPoint = byte(flameValue - flameDampen/flameValue);
         } else {
         newPoint = byte(0);  
         }
-      fireDataB[x][y+1] = newPoint;
+      matrixLayer2[x][y+1] = newPoint;
       }
     }
    
@@ -314,8 +388,8 @@ void twoChannelFire() {
     {
     for(int y = 0; y < 64; y++)
       {
-      pixelSet(x,y, strip.Color(gamma(fireDataA[x][y]), gamma(byte(fireDataA[x][y]/(y+2))), 0));
-      fireDataA[x][y] = fireDataB[x][y];
+      pixelSet(x,y, strip.Color(gamma(matrixLayer1[x][y]), gamma(byte(matrixLayer1[x][y]/(y+2))), 0));
+      matrixLayer1[x][y] = matrixLayer2[x][y];
       }
     }
 }
@@ -328,16 +402,16 @@ void sparkler() {
 
   for(int x = 0; x < 6; x++)
     {
-    fireDataA[x][0] = random(0, 127);
-    fireDataA[x][1] = random(0, 127);
+    matrixLayer1[x][0] = random(0, 127);
+    matrixLayer1[x][1] = random(0, 127);
     }
   
   for(int x = 0; x < 6; x++) 
     {
     for(int y = 0; y < 64; y++)
       {
-      byte newPoint = (fireDataA[x-1][y] + fireDataA[x+1][y] + fireDataA[x][y-1] + fireDataA[x][y+1]) / 4 - 15;
-      fireDataB[x][y+1] = newPoint;
+      byte newPoint = (matrixLayer1[x-1][y] + matrixLayer1[x+1][y] + matrixLayer1[x][y-1] + matrixLayer1[x][y+1]) / 4 - 15;
+      matrixLayer2[x][y+1] = newPoint;
       if(newPoint>80)
         pixelSet(x,y, setBrightness(Wheel(((newPoint/5)+r)%384),1));      
       if(newPoint<80)
@@ -352,7 +426,7 @@ void sparkler() {
     {
     for(int y = 0; y < 64; y++)
       {
-      fireDataA[x][y] = fireDataB[x][y];
+      matrixLayer1[x][y] = matrixLayer2[x][y];
       }
     }
     
@@ -366,16 +440,16 @@ void sparklerMultiColor() {
 
   for(int x = 0; x < 6; x++)
     {
-    fireDataA[x][0] = random(0, 127);
-    fireDataA[x][1] = random(0, 127);
+    matrixLayer1[x][0] = random(0, 127);
+    matrixLayer1[x][1] = random(0, 127);
     }
   
   for(int x = 0; x < 6; x++) 
     {
     for(int y = 0; y < 64; y++)
       {
-      byte newPoint = (fireDataA[x-1][y] + fireDataA[x+1][y] + fireDataA[x][y-1] + fireDataA[x][y+1]) / 4 - 15;
-      fireDataB[x][y+1] = newPoint;
+      byte newPoint = (matrixLayer1[x-1][y] + matrixLayer1[x+1][y] + matrixLayer1[x][y-1] + matrixLayer1[x][y+1]) / 4 - 15;
+      matrixLayer2[x][y+1] = newPoint;
       pixelSet(x,y, strip.Color(gamma(newPoint)/r, gamma(newPoint)/(r/300), gamma(newPoint)*(r/900)));
       }
     }
@@ -387,7 +461,7 @@ void sparklerMultiColor() {
     {
     for(int y = 0; y < 64; y++)
       {
-      fireDataA[x][y] = fireDataB[x][y];
+      matrixLayer1[x][y] = matrixLayer2[x][y];
       }
     }
     
@@ -1126,7 +1200,7 @@ void rainbowRadial(uint8_t wait, int powerX, int powerY) {
 }
 
 // Very strong shift pulses.
-void ultimateAcidTrap(uint8_t wait) {
+void ultimateTrap(uint8_t wait) {
   uint16_t i, j,p;
   // The higher this number the more rainbows there are on the array
   // CompressionFactor of 10 yields pretty much exactly 1 rainbow.
@@ -1345,19 +1419,19 @@ uint32_t gWheel(uint16_t WheelPos)
 }
 
 
-//For 32 pixel 
 void pixelSet(int x, int y, uint32_t c) {
  
   // Converts an x,y pair into a linear position
   // Expect coordinate system with origin in bottom left at (0,0)
   int i =0;
   
-  if(x%2==0)
+  if(y%2==0)
   {
-    i = (x*64)+y;
+    i = (y*matrixSizeX)+x;
   } else {
-    i = (x*64)+63-y;    
+    i = (y*matrixSizeX)+(matrixSizeX-1)-x;    
   }
+  
   strip.setPixelColor(i, c); 
   
 }
@@ -1455,3 +1529,162 @@ uint32_t blueChannel(uint32_t c) {
 
 }
 
+
+// Trigonometric heuristic for speeding up Sin and Cos heavy methods. 
+// Adapter from Michael Baczynski
+// http://lab.polygonal.de
+/*********************************************************
+ * low precision sine/cosine
+ *********************************************************/
+
+float veryFastSine(float x)
+{
+
+  float returnSin = 0;
+  float returnCos = 0;
+  //always wrap input angle to -PI..PI
+if (x < -3.14159265)
+    x += 6.28318531;
+else
+if (x >  3.14159265)
+    x -= 6.28318531;
+
+//compute sine
+if (x < 0)
+    returnSin = 1.27323954 * x + .405284735 * x * x;
+else
+    returnSin = 1.27323954 * x - 0.405284735 * x * x;
+    
+    return returnSin;
+}
+
+float veryFastCos(float x)
+{
+
+  float returnSin = 0;
+  float returnCos = 0;
+  //always wrap input angle to -PI..PI
+if (x < -3.14159265)
+    x += 6.28318531;
+else
+if (x >  3.14159265)
+    x -= 6.28318531;
+
+//compute sine
+if (x < 0)
+    returnSin = 1.27323954 * x + .405284735 * x * x;
+else
+    returnSin = 1.27323954 * x - 0.405284735 * x * x;
+
+//compute cosine: sin(x + PI/2) = cos(x)
+x += 1.57079632;
+if (x >  3.14159265)
+    x -= 6.28318531;
+
+if (x < 0)
+    returnCos = 1.27323954 * x + 0.405284735 * x * x;
+else
+    returnCos = 1.27323954 * x - 0.405284735 * x * x;
+  
+  return returnCos;
+}
+
+
+/*********************************************************
+ * high precision sine/cosine
+ *********************************************************/
+
+float fastSine(float x)
+{
+  float returnSin = 0;
+  float returnCos = 0;
+
+//always wrap input angle to -PI..PI
+if (x < -3.14159265)
+    x += 6.28318531;
+else
+if (x >  3.14159265)
+    x -= 6.28318531;
+
+//compute sine
+if (x < 0)
+{
+    returnSin = 1.27323954 * x + .405284735 * x * x;
+
+    if (returnSin < 0)
+        returnSin = .225 * (returnSin *-returnSin - returnSin) + returnSin;
+    else
+        returnSin = .225 * (returnSin * returnSin - returnSin) + returnSin;
+}
+else
+{
+    returnSin = 1.27323954 * x - 0.405284735 * x * x;
+
+    if (returnSin < 0)
+        returnSin = .225 * (returnSin *-returnSin - returnSin) + returnSin;
+    else
+        returnSin = .225 * (returnSin * returnSin - returnSin) + returnSin;
+}
+
+return returnSin;
+
+}
+
+float fastCos(float x)
+{
+  float returnSin = 0;
+  float returnCos = 0;
+
+//always wrap input angle to -PI..PI
+if (x < -3.14159265)
+    x += 6.28318531;
+else
+if (x >  3.14159265)
+    x -= 6.28318531;
+
+//compute sine
+if (x < 0)
+{
+    returnSin = 1.27323954 * x + .405284735 * x * x;
+
+    if (returnSin < 0)
+        returnSin = .225 * (returnSin *-returnSin - returnSin) + returnSin;
+    else
+        returnSin = .225 * (returnSin * returnSin - returnSin) + returnSin;
+}
+else
+{
+    returnSin = 1.27323954 * x - 0.405284735 * x * x;
+
+    if (returnSin < 0)
+        returnSin = .225 * (returnSin *-returnSin - returnSin) + returnSin;
+    else
+        returnSin = .225 * (returnSin * returnSin - returnSin) + returnSin;
+}
+
+//compute cosine: sin(x + PI/2) = cos(x)
+x += 1.57079632;
+if (x >  3.14159265)
+    x -= 6.28318531;
+
+if (x < 0)
+{
+    returnCos = 1.27323954 * x + 0.405284735 * x * x;
+
+    if (returnCos < 0)
+        returnCos = .225 * (returnCos *-returnCos - returnCos) + returnCos;
+    else
+        returnCos = .225 * (returnCos * returnCos - returnCos) + returnCos;
+}
+else
+{
+    returnCos = 1.27323954 * x - 0.405284735 * x * x;
+
+    if (returnCos < 0)
+        returnCos = .225 * (returnCos *-returnCos - returnCos) + returnCos;
+    else
+        returnCos = .225 * (returnCos * returnCos - returnCos) + returnCos;
+}
+
+  return returnCos;
+}
